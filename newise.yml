@@ -1,0 +1,132 @@
+# Playbook to setup ISE cluster with specifc personas on each node.  This will setup 2 admin, 2 monitoring and 4 policy nodes 
+# using previously build VMs.  You can adjust the script if you add/remove nodes in your specific setup.  You can refer to the 
+# Cisco API documenation for further clarification on options
+---
+- name: Create ISE Deployment
+  gather_facts: no
+  vars_files:
+
+  vars:
+    pan_ip: '10.10.100.11'	#ip of the PAN for the new deployment
+    admin_user: 'admin'		#name of PAN admin user created during setup
+    admin_pwd: 'Changeme2!'	#password of the PAN admin user
+    user: 'admin'		#name of the admin user created during setup on all remaining nodes
+    pwd: 'Changeme1!		#password of the admin user created during setup on all remaining nodes
+
+  hosts:
+          localhost
+
+  tasks:
+    # Make sure to change GUI password in PAN before starting.  Otherwise Persona change may fail later due to 
+    # forced password change.  I had this happen during a couple of my tests so I changed this.  
+    - name: Promote primary admin
+      cisco.ise.personas_promote_primary:
+        ip: "{{ pan_ip }}"
+        username: "{{ admin_user }}"
+        password: "{{ admin_pwd }}"
+
+    # Register primary MNT to PAN of new deployment
+    - name: Register primary monitoring
+      cisco.ise.personas_register_node:
+        primary_ip: "{{ pan_ip }}"
+        primary_username: "{{ admin_user }}"
+        primary_password: "{{ admin_pwd }}"
+        fqdn: "{{ item.fqdn }}"
+        username: "{{ user }}"
+        password: "{{ pwd }}"
+        roles: "{{ item.roles }}"
+        services: "{{ item.services }}"
+      loop:
+        - fqdn: ise-mnt-1.lab.local
+          roles:
+            - PrimaryMonitoring
+          services: []
+
+    # After altering permsona on MNT, it will take several minutes for servies to restart
+    # so this pause will wait 5min before beginning to check that application service is back online
+    - name: Pause to wait for sync to start
+      ansible.builtin.pause:
+        minutes: 5
+
+    # Start checking for applicaiton service to come back online
+    - name: Check node for services to restart
+      include_tasks: check1.yml
+      loop:
+        - 'ise-mnt-1'
+
+    # Once MNT is online, update primary admin to remove unneeded personas
+    - name: Update PAN personas
+      cisco.ise.personas_update_roles_services:
+        ip: "{{ pan_ip }}"
+        username: "{{ admin_user }}"
+        password: "{{ admin_pwd }}"
+        hostname: ise-pan-1
+        roles:
+          - PrimaryAdmin
+        services: []
+
+    # After altering persona on PAN, it will take several minutes for servies to restart
+    # so this pause will wait 5min before beginning to check that application service is back online
+    - name: Pause to wait for sync to start
+      ansible.builtin.pause:
+        minutes: 5
+
+    # Start checking for applicaiton service to come back online
+    - name: Check node for services to restart
+      include_tasks: check1.yml
+      loop:
+        - 'ise-pan-1'
+
+    # Pause for additional 1 min to wait for API to start responding to allow new nodes to be registered. Encountered issues
+    # during testing that immediately trying to proceed would cause playbook to fail
+    - name: Pause to wait for admin to start responding to API requests
+      ansible.builtin.pause:
+        minutes: 1
+
+    # Register remaining nodes to deployment
+    - name: Register the secondary and PSN nodes to the cluster
+      cisco.ise.personas_register_node:
+        primary_ip: "{{ pan_ip }}"
+        primary_username: "{{ admin_user }}"
+        primary_password: "{{ admin_pwd }}"
+        fqdn: "{{ item.fqdn }}"
+        username: "{{ user }}"
+        password: "{{ pwd }}"
+        roles: "{{ item.roles }}"
+        services: "{{ item.services }}"
+
+      loop:
+        - fqdn: ise-pan-2.lab.local
+          roles:
+            - SecondaryAdmin
+          services: []
+        - fqdn: ise-mnt-2.lab.local
+          roles:
+            - SecondaryMonitoring
+          services: []
+        - fqdn: ise-psn-1a.lab.local
+          roles: []
+          services:
+            - Session
+            - Profiler
+            - DeviceAdmin
+        - fqdn: ise-psn-1b.lab.local
+          roles: []
+          services:
+            - Session
+            - Profiler
+            - DeviceAdmin
+        - fqdn: ise-psn-2a.lab.local
+          roles: []
+          services:
+            - Session
+            - Profiler
+            - DeviceAdmin
+        - fqdn: ise-psn-2b.lab.local
+          roles: []
+          services:
+            - Session
+            - Profiler
+            - DeviceAdmin
+
+#At this point deployment should be complete.  It will take some time for nodes to sync all to become available.  You can run the check.yml playbook to check for node status.  This uses the same check1.yml script above to do the checking.  This can be modified to match the names of the nodes in your specific setup.

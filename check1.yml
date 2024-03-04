@@ -1,0 +1,12 @@
+- name: Wait until {{ item }} HTTP status is 200
+  uri:
+    url: 'http://{{ item }}.lab.local/admin/login.jsp'
+    return_content: yes
+    validate_certs: no
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 30
+  delay: 30
+  register: uri_output
+

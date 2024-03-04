@@ -1,0 +1,21 @@
+---
+- name: Check nodes
+  gather_facts: false
+
+  vars:
+
+  hosts:
+    localhost
+
+  tasks:
+    - name: Check nodes
+      include_tasks: check1.yml
+      loop:
+        - 'ise-pan-1'
+        - 'ise-pan-2'
+        - 'ise-mnt-1'
+        - 'ise-mnt-2'
+        - 'ise-psn-1a'
+        - 'ise-psn-1b'
+        - 'ise-psn-2a'
+        - 'ise-psn-2b'

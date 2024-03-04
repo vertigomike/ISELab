@@ -1,0 +1,55 @@
+# This playbook will delete ISE deployment created using the proxcreate.yml playbook.  Ensure that you have any backups collected
+# beause this will permanently delete all nodes with no prompting to confirm.  This will allow you to quickly delete your lab
+# setup so that you can rebuild your lab.  This can be modified if you change the name or number of nodes that you built in your
+# specific deployment
+
+- name: Delete ISE Deployment
+  gather_facts: false
+  vars:
+    proxmox_api_user: 'root@pam'
+    proxmox_api_tokenid: 'apiroot'
+    proxmox_api_tokensecret: <tokensecret>
+    proxmox_api_host: <prox_ip>
+    proxmox_vm_node: 'pve'
+  hosts:
+    localhost
+
+  tasks:
+    - name: Stop ISE VMs
+      proxmox_kvm:
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_tokenid }}"
+        api_token_secret: "{{ proxmox_api_tokensecret }}"
+        api_host: "{{ proxmox_api_host }}"
+        node: "{{ proxmox_vm_node }}"
+        name: "{{ item.isenode }}"
+        state: stopped
+        force: yes
+      loop:
+        - isenode: ise-pan-1
+        - isenode: ise-pan-2
+        - isenode: ise-mnt-1
+        - isenode: ise-mnt-2
+        - isenode: ise-psn-1a
+        - isenode: ise-psn-1b
+        - isenode: ise-psn-2a
+        - isenode: ise-psn-2b
+
+    - name: Delete ISE VMs
+      proxmox_kvm:
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_tokenid }}"
+        api_token_secret: "{{ proxmox_api_tokensecret }}"
+        api_host: "{{ proxmox_api_host }}"
+        node: "{{ proxmox_vm_node }}"
+        name: "{{ item.isenode }}"
+        state: absent
+      loop:
+        - isenode: ise-pan-1
+        - isenode: ise-pan-2
+        - isenode: ise-mnt-1
+        - isenode: ise-mnt-2
+        - isenode: ise-psn-1a
+        - isenode: ise-psn-1b
+        - isenode: ise-psn-2a
+        - isenode: ise-psn-2b

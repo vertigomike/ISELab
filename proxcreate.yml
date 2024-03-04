@@ -1,0 +1,135 @@
+# Playbook to create ISE VMs from a previously defined template (ise32 in my case).  To create my template, I created a new VM 
+# using the 3.2 ISO and once the VM was built and it rebooted to the point of the -setup- screen.  I then shut down the VM and
+# converted to a template.  This isn't necessary but saves a lot of time of having to build from scratch with ISO each time and
+# run through the first portion of setup
+
+- name: Create ISE VMs
+  gather_facts: false
+  vars:
+    proxmox_api_user: 'root@pam'
+    proxmox_api_tokenid: 'apiroot'
+    proxmox_api_tokensecret: <tokensecret>
+    proxmox_api_host: <prox_ip>
+    #update with name for a previously deployed VM tempate
+    proxmox_vm_template: 'ise32'
+    proxmox_vm_node: 'pve'
+    #update for desired # cores.  4 is the default if you deployed an eval OVA in vmware
+    proxmox_vm_cores: 4
+    #update for desired memory.  16GB is the default if you deployed an eval OVA in vmware
+    proxmox_vm_memory: 16384
+    #disk size can be change to desired size (in GB) and also updated to contain your desired store location.  My storage area is 
+    #called vmdata
+    proxmox_vm_disk_size: 'vmdata:200'
+  hosts:
+    localhost
+
+  tasks:
+    - name: Create nodes
+      proxmox_kvm:
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_tokenid }}"
+        api_token_secret: "{{ proxmox_api_tokensecret }}"
+        api_host: "{{ proxmox_api_host }}"
+        node: "{{ proxmox_vm_node }}"
+        name: "{{ item.isenode }}"
+        cores: "{{ proxmox_vm_cores }}"
+        memory: "{{ proxmox_vm_memory }}"
+        storage: vmdata # Storage pool for the disk
+        clone: "{{ proxmox_vm_template }}"
+	#wait 20min for node to build.  This can be changed if desired but i had some drive issues with my first deployments
+	#and needed to wait 20min for node to build or ansible script would timeout.  After tuning my lab it takes 5-6min per node
+	#you can make adjustments if needed.  If 20min isn't long enough for your deployment you always increase the time to force
+        #playbook to wait longer for task to complete
+        timeout: 1200
+        state: present
+      loop:
+        - isenode: ise-pan-1
+        - isenode: ise-pan-2
+        - isenode: ise-mnt-1
+        - isenode: ise-mnt-2
+        - isenode: ise-psn-1a
+        - isenode: ise-psn-1b
+        - isenode: ise-psn-2a
+        - isenode: ise-psn-2b
+
+    #I found immediately moving to the next step sometimes could cause failures if Prox was still syncing and node wasn't ready
+    #so I added a quick pause to ensure it was complete to move forward
+    - name: Pause to wait for node creation to finish before starting updates
+      ansible.builtin.pause:
+        seconds: 30
+
+    #I use a different VLAN for my PSN to setup for F5 lab.  If you don't need to change what was configured on the template VM
+    #then you can commment this section out
+    - name: Update network for PSN 
+      community.general.proxmox_nic:
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_tokenid }}"
+        api_token_secret: "{{ proxmox_api_tokensecret }}"
+        api_host: "{{ proxmox_api_host }}"
+        name: "{{ item.isenode }}"
+        interface: net0
+        bridge: vmbr0
+        tag: 310
+        state: present
+      loop:
+        - isenode: ise-psn-1a
+        - isenode: ise-psn-1b
+        - isenode: ise-psn-2a
+        - isenode: ise-psn-2b
+
+    #This section adds an ise cdrom to each configured VM to apply a ZTP image specific to each node.  These should be
+    #staged in one of your Prox storage area and updated to reflect your specific path.  I stage this off a synology NFS share
+    #in my specifc use case.  You may need to adjust the ide# depending on how your VM template is setup with your original ise    
+    #ISO location
+    - name: Add ZTP Image to ISE VMs
+      community.general.proxmox_disk:
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_tokenid }}"
+        api_token_secret: "{{ proxmox_api_tokensecret }}"
+        api_host: "{{ proxmox_api_host }}"
+        name: "{{ item.isenode }}"
+        disk: ide0
+        media: cdrom
+        iso_image: "{{ item.iseimg }}"
+        state: present
+      loop:
+        - isenode: ise-pan-1
+          iseimg:  ds1:iso/pan1.img
+        - isenode: ise-pan-2
+          iseimg:  ds1:iso/pan2.img
+        - isenode: ise-mnt-1
+          iseimg:  ds1:iso/mnt1.img
+        - isenode: ise-mnt-2
+          iseimg:  ds1:iso/mnt2.img
+        - isenode: ise-psn-1a
+          iseimg:  ds1:iso/psn1a.img
+        - isenode: ise-psn-1b
+          iseimg:  ds1:iso/psn1b.img
+        - isenode: ise-psn-2a
+          iseimg:  ds1:iso/psn2a.img
+        - isenode: ise-psn-2b
+          iseimg:  ds1:iso/psn2b.img
+
+    #Start VMs
+    - name: Start ISE VMs
+      community.general.proxmox_kvm:
+        api_user: "{{ proxmox_api_user }}"
+        api_token_id: "{{ proxmox_api_tokenid }}"
+        api_token_secret: "{{ proxmox_api_tokensecret }}"
+        api_host: "{{ proxmox_api_host }}"
+        name: "{{ item.isenode }}"
+        state: started
+      loop:
+        - isenode: ise-pan-1
+        - isenode: ise-pan-2
+        - isenode: ise-mnt-1
+        - isenode: ise-mnt-2
+        - isenode: ise-psn-1a
+        - isenode: ise-psn-1b
+        - isenode: ise-psn-2a
+        - isenode: ise-psn-2b
+
+
+
+#At this point all the VMs are installed.  If successful, nodes should start up to the -setup- screen then automated configuration
+#should start after approximately 2.5 minutes or so.  This was my biggest issue in testing ZTP previously as I didn't wait long #enough for the process to kick off.  Once the runs it will also patch once the node setup is completed.  It will take #approximately 60 minutes for all the nodd database setup to complete, node to patch, and services to be completely running
